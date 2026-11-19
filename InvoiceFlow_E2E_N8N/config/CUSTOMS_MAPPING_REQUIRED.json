@@ -1,0 +1,10 @@
+{
+  "source": "Baocaotokhai*.xlsx raw workbook; contains physical columns A through DB",
+  "sourceMappingIsKnown": false,
+  "criticalMissingInformation": [
+    "Which column(s) in the ORIGINAL Baocaotokhai file contain invoice number, customs declaration number, declaration date, and reconciliation difference?",
+    "Tờ khai workbook fields A/B/C/D are FORMULA RESULTS computed from other raw columns after pasting at H1. The previous steps do not reveal those formulas.",
+    "If source fields have multi-row headers, multiple sheets, or merged cells, change sheetName/headerRow and parse rules."
+  ],
+  "howToConfigure": "In Code node 02 - Config va bao ve path, set customs.colInvoice/colDeclaration/colDate/colCheckDifference to physical Excel column letters. Then set customsMappingVerified=true only after UAT and reconciliation on actual source."
+}

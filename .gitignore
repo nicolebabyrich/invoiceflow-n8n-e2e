@@ -1,0 +1,15 @@
+# Local workspace / agent artifacts
+notpush/
+.agent/
+.env
+
+# Exclude all sample & output Excel spreadsheets (enterprise data confidentiality)
+*.xls
+*.xlsx
+*.xlsm
+*.xlsb
+*.zip
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

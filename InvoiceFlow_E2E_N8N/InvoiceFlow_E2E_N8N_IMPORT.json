@@ -1,0 +1,739 @@
+{
+  "name": "InvoiceFlow | SAP API + Baocaotokhai + Viettel + Audit | E2E Review",
+  "nodes": [
+    {
+      "id": "01",
+      "name": "01 - Form 1 Click",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "parameters": {
+        "formTitle": "InvoiceFlow | 1-click SAP → Excel Viettel",
+        "formDescription": "Chọn kỳ xử lý → RUN. n8n tự đọc tờ khai từ thư mục dùng chung, lấy invoice + tỷ giá từ SAP, đối soát và lưu Excel chờ review + Audit Log vào thư mục results. Không tự động upload Viettel.",
+        "authentication": "n8nUserAuth",
+        "requireExecuteAccess": false,
+        "responseMode": "lastNode",
+        "formFields": {
+          "values": [
+            {
+              "fieldName": "Profile",
+              "fieldLabel": "Hồ sơ cấu hình (IT đã thiết lập)",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "FINANCE_VN"
+                  }
+                ]
+              },
+              "defaultValue": "FINANCE_VN"
+            },
+            {
+              "fieldName": "Nguon_SAP",
+              "fieldLabel": "Nguồn dữ liệu SAP",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "LOCAL_FOLDER"
+                  },
+                  {
+                    "option": "SAP_API"
+                  }
+                ]
+              },
+              "defaultValue": "LOCAL_FOLDER"
+            },
+            {
+              "fieldName": "Ngay_xu_ly",
+              "fieldLabel": "Ngày hóa đơn cần xử lý (YYYY-MM-DD)",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "2026-11-11"
+            },
+            {
+              "fieldName": "Ma_cong_ty",
+              "fieldLabel": "Mã công ty SAP",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "HK63"
+            },
+            {
+              "fieldName": "Ty_gia_USD_VND",
+              "fieldLabel": "Tỷ giá USD/VND (nhập tay nếu chọn LOCAL_FOLDER)",
+              "fieldType": "number",
+              "requiredField": false,
+              "placeholder": "25890"
+            },
+            {
+              "fieldName": "Nguoi_thuc_hien",
+              "fieldLabel": "Người thực hiện (mã nhân viên)",
+              "fieldType": "text",
+              "requiredField": false
+            },
+            {
+              "fieldName": "Ghi_de_path_to_khai",
+              "fieldLabel": "Tùy chọn: path tờ khai tương đối trong mountRoot (để trống = mặc định)",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "customs/TK*/Baocaotokhai*.xlsx"
+            },
+            {
+              "fieldName": "Ghi_de_path_template",
+              "fieldLabel": "Tùy chọn: path template tương đối trong mountRoot (để trống = mặc định)",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "templates/00. UPLOAD INVOICES VIETTEL.xlsx"
+            },
+            {
+              "fieldName": "Ghi_de_thu_muc_ket_qua",
+              "fieldLabel": "Tùy chọn: thư mục đầu ra tương đối trên server (để trống = mặc định)",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "results"
+            },
+            {
+              "fieldName": "Ghi_de_path_sap",
+              "fieldLabel": "Tùy chọn: path file SAP local trong mountRoot (nếu chọn LOCAL_FOLDER)",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "Desktop/HK63 08.26.XLSX"
+            }
+          ]
+        },
+        "options": {
+          "path": "invoiceflow-e2e-sap-excel",
+          "buttonLabel": "CHẠY TOÀN BỘ & TẢI KẾT QUẢ",
+          "ignoreBots": true,
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        180,
+        260
+      ],
+      "webhookId": "382a455f-576a-4136-800f-8d459f53c035"
+    },
+    {
+      "id": "02",
+      "name": "02 - Config va bao ve path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/**\n * InvoiceFlow E2E | Config node: staff only sets date/profile; IT edits profiles ONCE.\n * Paths are inside an n8n-server mounted root; user cannot access arbitrary files.\n * Configure the API URLs/column mapping to match REAL SAP and customs files before UAT.\n */\nconst f = $input.first().json;\nconst profiles = {\n  FINANCE_VN: {\n    mountRoot: '/files/finance',\n    customsGlob: 'Bảng kê tờ khai HQ/TK*/BaoCaoToKhai*.xls*',\n    templateFile: '5. Sale invoices/00. UPLOAD INVOICES VIETTEL.xlsx',\n    sapLocalFile: 'Desktop/HK63 08.26.XLSX',\n    sapLocalSheet: 'Sheet1',\n    sapLocalRate: null,\n    outputDirectory: 'results',\n    sapInvoiceUrl: 'https://SAP_GATEWAY_HOST/finance/invoices',\n    sapRateUrl: 'https://SAP_GATEWAY_HOST/finance/usd-vnd-rate',\n    // Values below refer to physical source columns of actual BaoCaoToKhai*.xls (header row 9).\n    customs: { sheetName: 'Sheet1', headerRow: 9, colInvoice: 'AD', colDate: 'E', colDeclaration: 'B', colCheckDifference: '', colAmount: 'AN' },\n    // Contract: normalized JSON from SAP integration must contain these field names.\n    sap: { rowsPath: 'value', invoice: 'invoice', date: 'billingDate', F: 'contentF', G: 'contentG', K: 'fieldK', L: 'quantity', M: 'fieldM', N: 'fieldN', P: 'declarationText', reconcileDifference: 'reconcileDifference' },\n    fx: { rate: 'rateVndPerUsd', validOn: 'validOn' },\n    templateSheet: 'Thông tin hóa đơn',\n    toleranceCustoms: 0.03,\n    toleranceSAP: 0.000001,\n    requireCustomsDifference: false,\n    requireSAPDifference: true,\n    requireCustomsDate: true,\n    requireFXValidOn: true,\n    customsMappingVerified: true, // Verified against BaoCaoToKhai 14.8.26.xls\n    sapContractVerified: false, // IT sets true after verifying real YINVLST API normalized data\n    fxContractVerified: false, // IT sets true after verifying actual TCURR rate factors / validOn\n    templateMappingVerified: true, // Verified against 00. UPLOAD INVOICES VIETTEL.xls -> .xlsx\n    maxRows: 25000\n  }\n};\nconst id = String(f.Profile || 'FINANCE_VN');\nif (!Object.hasOwn(profiles, id)) throw new Error('PROFILE_NOT_FOUND: Không có cấu hình profile này.');\nconst p = JSON.parse(JSON.stringify(profiles[id]));\nconst d = String(f.Ngay_xu_ly || '').trim();\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(d) || !Number.isFinite(Date.parse(`${d}T00:00:00Z`)) || new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) !== d) throw new Error('DATE_INVALID: Dùng ngày YYYY-MM-DD.');\nconst company = String(f.Ma_cong_ty || '').trim().toUpperCase();\nif (!/^[A-Z0-9]{2,12}$/.test(company)) throw new Error('COMPANY_INVALID: Mã công ty không hợp lệ.');\nconst root = p.mountRoot.replace(/\\\\/g, '/').replace(/\\/$/, '');\nfunction safeUnderRoot(rel, withGlob = false) {\n  let raw = String(rel || '').trim().replace(/\\\\/g, '/');\n  if (raw.toLowerCase().startsWith('d:/kiến_tập/code_space/finance_share/')) raw = raw.slice('d:/kiến_tập/code_space/finance_share/'.length);\n  else if (raw.startsWith(root + '/')) raw = raw.slice((root + '/').length);\n  if (!raw || raw.startsWith('/') || /^[A-Za-z]:/.test(raw) || raw.split('/').some(s => s === '..' || s === '.' || !s) || /[\\x00-\\x1f]/.test(raw)) throw new Error('PATH_REJECTED: Chỉ cho phép đường dẫn tương đối hoặc đường dẫn nằm trong thư mục finance_share.');\n  if (!withGlob && /[*?\\[\\]{}]/.test(raw)) throw new Error('PATH_REJECTED: Không dùng wildcard ở đường dẫn file cụ thể.');\n  if (withGlob && /[{}]/.test(raw)) throw new Error('PATH_REJECTED: Không hỗ trợ pattern dạng {...}.');\n  return `${root}/${raw}`;\n}\nconst rawCustoms = String(f.Ghi_de_path_to_khai || '').trim() || p.customsGlob;\nconst rawTemplate = String(f.Ghi_de_path_template || '').trim() || p.templateFile;\nconst defaultSapLocal = `Desktop/${company} ${d.slice(5, 7)}.${d.slice(2, 4)}.XLSX`;\nconst rawSapLocal = String(f.Ghi_de_path_sap || '').trim() || defaultSapLocal;\nconst rawOutput = String(f.Ghi_de_thu_muc_ket_qua || '').trim() || p.outputDirectory;\nconst sapSourceMode = String(f.Nguon_SAP || 'LOCAL_FOLDER').trim().toUpperCase() === 'SAP_API' ? 'SAP_API' : 'LOCAL_FOLDER';\nconst rawFx = String(f.Ty_gia_USD_VND ?? '').trim();\nlet sapLocalRate = null;\nif (rawFx !== '') {\n  const parsedFx = Number(rawFx.replace(/,/g, ''));\n  if (!Number.isFinite(parsedFx) || parsedFx <= 0) throw new Error('FX_RATE_INVALID: Tỷ giá USD/VND phải là số dương hợp lệ.');\n  sapLocalRate = parsedFx;\n} else if (f.Nguon_SAP === 'LOCAL_FOLDER') {\n  throw new Error('FX_RATE_REQUIRED: Vui lòng nhập tỷ giá USD/VND khi chạy chế độ LOCAL_FOLDER.');\n}\nconst yyyy = d.slice(0, 4), mm = d.slice(5, 7);\nconst resolveTokens = s => s.replace(/\\{YYYY\\}/g, yyyy).replace(/\\{MM\\}/g, mm).replace(/\\{YYYYMM\\}/g, yyyy + mm);\nconst from = `${yyyy}-${mm}-01`;\nconst next = new Date(Date.UTC(Number(yyyy), Number(mm), 1));\nconst to = new Date(next.getTime() - 86400000).toISOString().slice(0, 10);\nconst cfg = {\n  ...p, profile: id, sapSourceMode, sapLocalRate, requestedBy: String(f.Nguoi_thuc_hien || f['User Email'] || 'n8n Form'),\n  date: d, companyCode: company, monthStart: from, monthEnd: to,\n  customsPath: safeUnderRoot(resolveTokens(rawCustoms), true),\n  templatePath: safeUnderRoot(resolveTokens(rawTemplate)),\n  sapLocalPath: safeUnderRoot(resolveTokens(rawSapLocal)),\n  outputFolder: safeUnderRoot(resolveTokens(rawOutput)),\n};\n// This mapping is an explicit IT-owned integration contract, not a guessed SAP endpoint.\nif (!/^https:\\/\\//i.test(cfg.sapInvoiceUrl) || !/^https:\\/\\//i.test(cfg.sapRateUrl)) throw new Error('SAP_API_CONFIG: URL phải dùng HTTPS.');\nreturn [{ json: { cfg, form: { profile: id, date: d, company } } }];\n"
+      },
+      "position": [
+        410,
+        260
+      ]
+    },
+    {
+      "id": "03",
+      "name": "03 - Doc Baocaotokhai tu share",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.cfg.customsPath }}",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "position": [
+        640,
+        260
+      ]
+    },
+    {
+      "id": "04",
+      "name": "04 - Chon file to khai",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/** Select newest by timestamp/name per TK directory (supports multiple TK folders for the same date). */\nconst a = $input.all();\nif (!a.length) throw new Error('CUSTOMS_NOT_FOUND: Không có file tờ khai trong path đã cấu hình.');\nconst byDir = new Map();\nfor (let idx = 0; idx < a.length; idx++) {\n  const item = a[idx];\n  const b = item.binary?.data;\n  if (!b) throw new Error('CUSTOMS_MISSING_BINARY: Read file node chưa trả binary.data');\n  const name = String(b.fileName || item.json?.fileName || `file_${idx}`);\n  const dir = String(b.directory || item.json?.directory || '');\n  const m = name.match(/20\\d{2}[-_.]?\\d{2}[-_.]?\\d{2}(?:[-_.]?\\d{2})?(?:[-_.]?\\d{2})?(?:[-_.]?\\d{2})?/);\n  const stamp = m ? m[0].replace(/\\D/g, '') : '';\n  if (!byDir.has(dir)) byDir.set(dir, []);\n  byDir.get(dir).push({ item, idx, name, dir, stamp });\n}\nconst customsFiles = [];\nfor (const [dir, list] of byDir) {\n  list.sort((x, y) => (y.stamp || y.name).localeCompare(x.stamp || x.name));\n  const chosen = list[0];\n  const buf = await this.helpers.getBinaryDataBuffer(chosen.idx, 'data');\n  customsFiles.push({\n    fileName: chosen.name,\n    directory: dir,\n    selection: list.length === 1 ? 'ONLY_MATCH' : chosen.stamp ? 'FILENAME_TIMESTAMP' : 'FILENAME_LEXICAL',\n    candidates: list.length,\n    base64: buf.toString('base64')\n  });\n}\nconst previous = $('02 - Config va bao ve path').first().json;\nreturn [{ json: { ...previous, customs: customsFiles[0], customsFiles } }];\n"
+      },
+      "position": [
+        870,
+        260
+      ]
+    },
+    {
+      "id": "05",
+      "name": "05 - Doc template Viettel",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.cfg.templatePath }}",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "position": [
+        1090,
+        260
+      ]
+    },
+    {
+      "id": "06",
+      "name": "06 - Buffer template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const it=$input.first();\nif(!it.binary?.data) throw new Error('TEMPLATE_NOT_FOUND: Không đọc được mẫu Excel Viettel.');\nconst b=await this.helpers.getBinaryDataBuffer(0,'data');\nreturn [{json:{...$('04 - Chon file to khai').first().json, template:{fileName:it.binary.data.fileName||'Viettel.xlsx',base64:b.toString('base64')}}}];\n"
+      },
+      "position": [
+        1320,
+        260
+      ]
+    },
+    {
+      "id": "07",
+      "name": "07 - SAP YINVLST API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('02 - Config va bao ve path').first().json.cfg.sapInvoiceUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "companyCode",
+              "value": "={{ $('02 - Config va bao ve path').first().json.cfg.companyCode }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('02 - Config va bao ve path').first().json.cfg.monthStart }}"
+            },
+            {
+              "name": "to",
+              "value": "={{ $('02 - Config va bao ve path').first().json.cfg.monthEnd }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "position": [
+        1540,
+        260
+      ],
+      "continueOnFail": true
+    },
+    {
+      "id": "07b",
+      "name": "07b - Gom response SAP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// SAP invoice endpoint may emit many n8n items; collapse to one execution before requesting TCURR.\nconst items=$input.all();\nreturn [{json:{receivedSAPHttpItems:items.length, errors:items.filter(x=>x.json?.error).map(x=>String(x.json.error?.message||x.json.error))}}];\n"
+      },
+      "position": [
+        1750,
+        260
+      ]
+    },
+    {
+      "id": "08",
+      "name": "08 - SAP TCURR API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('02 - Config va bao ve path').first().json.cfg.sapRateUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fromCurrency",
+              "value": "USD"
+            },
+            {
+              "name": "toCurrency",
+              "value": "VND"
+            },
+            {
+              "name": "validOn",
+              "value": "={{ new Date(new Date($('02 - Config va bao ve path').first().json.cfg.date + 'T00:00:00Z').getTime()-86400000).toISOString().slice(0,10) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "position": [
+        1960,
+        260
+      ],
+      "continueOnFail": true
+    },
+    {
+      "id": "09",
+      "name": "09 - Tao Excel Viettel va Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "/**\n * InvoiceFlow E2E | n8n Code / Run Once for All Items\n * Sources: actual Baocaotokhai XLSX + normalized SAP YINVLST JSON + normalized TCURR JSON + Viettel template XLSX.\n * Creates a review-only Viettel XLSX (NO UPLOAD) and auditable HTML/JSON/CSV logs.\n * IMPORTANT: SAP/Customs field contracts must be verified by IT against real files/APIs.\n * External module required in n8n JS Task Runner: exceljs.\n */\nconst startedAt = new Date().toISOString();\nconst params = $('06 - Buffer template').first().json;\nconst cfg = params.cfg;\nconst steps = [], defects = [], warnings = [];\nconst stats={ customsRows:0, sapRows:0, sapRowsForDate:0, matched:0, droppedZero:0, details:0, noteRows:0, invoiceGroups:0, customsDifference:null, sapDifference:null };\nconst log = (level,step,message,details='')=>{steps.push({time:new Date().toISOString(),level,step,message:String(message),details:String(details)});if(level==='ERROR')defects.push(String(message));if(level==='WARN')warnings.push(String(message));};\nconst raw=v=>v&&typeof v==='object'&&Object.prototype.hasOwnProperty.call(v,'result')?v.result:v&&typeof v==='object'&&Object.prototype.hasOwnProperty.call(v,'text')?v.text:v;\nconst txt=v=>String(raw(v)??'').trim();\nconst num=v=>{v=raw(v);if(typeof v==='number')return Number.isFinite(v)?v:NaN;let s=txt(v).replace(/[\\s\\u00a0]/g,'');if(!s)return NaN;if(s.includes(',')&&s.includes('.'))s=s.lastIndexOf(',')>s.lastIndexOf('.')?s.replace(/\\./g,'').replace(',','.'):s.replace(/,/g,'');else if(s.includes(','))s=s.replace(',','.');return Number(s)};\nconst date=v=>{v=raw(v);if(v instanceof Date)return `${v.getUTCFullYear()}-${String(v.getUTCMonth()+1).padStart(2,'0')}-${String(v.getUTCDate()).padStart(2,'0')}`;\nif(typeof v==='number'&&v>20000&&v<100000){const d=new Date(Date.UTC(1899,11,30)+Math.trunc(v)*86400000);return d.toISOString().slice(0,10)};\nlet s=txt(v);let m=s.match(/^(\\d{4})[-./](\\d{1,2})[-./](\\d{1,2})/);if(m)return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;\nm=s.match(/^(\\d{1,2})[-./](\\d{1,2})[-./](\\d{4})/);if(m)return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;return s.slice(0,10)};\nconst invoice=v=>txt(v).replace(/\\s/g,'').replace(/\\.0$/,'').toUpperCase();\nconst expand=v=>{const x=invoice(v).split(/[\\/;,]/).filter(Boolean);if(!x.length)return[];const first=x[0];return [...new Set([first,...x.slice(1).map(p=>/^\\d+$/.test(first)&&/^\\d+$/.test(p)&&p.length<first.length?first.slice(0,first.length-p.length)+p:p)])]};\nconst escape=v=>txt(v).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst csv=v=>'\"'+txt(v).replace(/\"/g,'\"\"')+'\"';\nconst pick=(o,k)=>String(k||'').split('.').filter(Boolean).reduce((v,p)=>v==null?undefined:v[p],o);\nconst colIndex=c=>typeof c==='number'?c:String(c||'').toUpperCase().split('').reduce((n,ch)=>n*26+ch.charCodeAt(0)-64,0);\nconst sha256=v=>{try{return require('crypto').createHash('sha256').update(v).digest('hex')}catch{return 'NO_CRYPTO_AVAILABLE'}};\nconst safe=`${cfg.companyCode}_${cfg.date.replace(/-/g,'')}_${Date.now()}`.replace(/[^A-Za-z0-9_-]/g,'');\nconst filenames={excel:'00. UPLOAD INVOICES VIETTEL.xlsx',audit_xlsx:`${safe}_AUDIT.xlsx`,html:`${safe}_AUDIT.html`,csv:`${safe}_AUDIT.csv`,json:`${safe}_AUDIT.json`};\nlet ExcelJS=null,xlsx=null,fxRate=null,fxDate=null,customsHash='',processedDecls=[],processedCustomsDirs=[];\ntry {\n  const isApiMode = cfg.sapSourceMode !== 'LOCAL_FOLDER';\n  const hasManualFx = Number(cfg.sapLocalRate) > 0;\n  if(!cfg.customsMappingVerified||!cfg.templateMappingVerified) throw new Error('CONFIG_NOT_APPROVED: IT phải nghiệm thu mapping tờ khai và mẫu Viettel, sau đó bật *Verified trong node 02.');\n  if(isApiMode && (!cfg.sapContractVerified||(!cfg.fxContractVerified&&!hasManualFx))) throw new Error('CONFIG_NOT_APPROVED: Chế độ SAP API yêu cầu IT nghiệm thu hợp đồng SAP YINVLST/TCURR và bật sapContractVerified/fxContractVerified trong node 02.');\n  try{ExcelJS=require('exceljs')}catch(e){throw new Error('MISSING_EXCELJS: IT chưa cài hoặc chưa cho phép exceljs trên JS task runner. '+e.message)}\n  const customsList=(Array.isArray(params.customsFiles)&&params.customsFiles.length)?params.customsFiles:[params.customs];\n  const tbuf=Buffer.from(params.template.base64,'base64');\n  customsHash=sha256(Buffer.from(customsList[0].base64,'base64'));\n  for(const cf of customsList){\n    const cHash=sha256(Buffer.from(cf.base64,'base64'));\n    log('INFO','SOURCE',`Tờ khai: ${cf.fileName} (${cf.candidates} file khớp; cách chọn ${cf.selection})`,cHash);\n    if(cf.selection==='FILENAME_LEXICAL')log('WARN','SOURCE','Nhiều file trùng glob, nhưng không có timestamp trong filename: đã chọn theo tên file, KHÔNG theo Date modified. IT nên chuẩn hóa quy tắc tên file.');\n  }\n  log('INFO','SOURCE',`Template: ${params.template.fileName}`,sha256(tbuf));\n  const tw=new ExcelJS.Workbook();await tw.xlsx.load(tbuf);\n  const vs=cfg.templateSheet?tw.getWorksheet(cfg.templateSheet):tw.worksheets[0];\n  if(!vs)throw new Error('TEMPLATE_SHEET_NOT_FOUND: Sheet template Viettel không tồn tại.');\n  const cols=cfg.customs;\n  const docs=new Map(),rawCustomsRows=[],seenCustomsDecls=new Set();let check=0,absCheck=0,checkN=0;\n  const processCustomsRow=(getVal,ri,rawArr)=>{\n    if(ri<=Number(cols.headerRow||1))return;\n    const inv=invoice(getVal(cols.colInvoice));if(!inv)return;\n    if(cfg.requireCustomsDate&&date(getVal(cols.colDate))!==cfg.date)return;\n    const decl=txt(getVal(cols.colDeclaration));\n    const dedupKey=`${decl}|${inv}`;\n    if(decl&&seenCustomsDecls.has(dedupKey))return;\n    if(decl){seenCustomsDecls.add(dedupKey);if(!processedDecls.includes(decl))processedDecls.push(decl);}\n    stats.customsRows++;\n    if(rawArr)rawCustomsRows.push({decl,inv,arr:rawArr});\n    if(!decl)log('ERROR','CUSTOMS',`Dòng ${ri} thiếu số tờ khai`,inv);\n    if(cfg.requireCustomsDifference){const delta=num(getVal(cols.colCheckDifference));if(!Number.isFinite(delta))log('ERROR','CUSTOMS',`Dòng ${ri} thiếu giá trị kiểm tra chênh lệch (cột ${cols.colCheckDifference}).`,inv);else {check+=delta;absCheck+=Math.abs(delta);checkN++;}}\n    const amount=cols.colAmount?num(getVal(cols.colAmount)):NaN;\n    for(const key of expand(inv)){\n      if(!docs.has(key))docs.set(key,{groupKey:inv,declarations:new Set(),amounts:[]});\n      const bucket=docs.get(key);if(decl)bucket.declarations.add(decl);if(Number.isFinite(amount)&&!bucket._seenDeclAmt?.has(decl)){\n        if(!bucket._seenDeclAmt)bucket._seenDeclAmt=new Set();\n        if(decl)bucket._seenDeclAmt.add(decl);\n        bucket.amounts.push(amount);\n      }\n    }\n  };\n  for(const cf of customsList){\n    if(cf.directory&&!processedCustomsDirs.includes(cf.directory))processedCustomsDirs.push(cf.directory);\n    const cbuf=Buffer.from(cf.base64,'base64');\n    if(cbuf.length>=4&&cbuf[0]===0xD0&&cbuf[1]===0xCF&&cbuf[2]===0x11&&cbuf[3]===0xE0){\n      let XLSX;try{XLSX=require('xlsx')}catch(e){throw new Error('MISSING_XLSX: Cần cài xlsx (SheetJS) để đọc file .xls. '+e.message)}\n      const wb=XLSX.read(cbuf,{type:'buffer'});\n      const sname=cfg.customs.sheetName&&wb.SheetNames.includes(cfg.customs.sheetName)?cfg.customs.sheetName:wb.SheetNames[0];\n      const ws=wb.Sheets[sname];if(!ws)throw new Error('CUSTOMS_SHEET_NOT_FOUND: Sheet tờ khai không tồn tại.');\n      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});\n      rows.forEach((r,idx)=>processCustomsRow(c=>r[colIndex(c)-1],idx+1,r));\n    } else {\n      const cw=new ExcelJS.Workbook();await cw.xlsx.load(cbuf);\n      const cs=cfg.customs.sheetName?cw.getWorksheet(cfg.customs.sheetName):cw.worksheets[0];\n      if(!cs)throw new Error('CUSTOMS_SHEET_NOT_FOUND: Sheet tờ khai không tồn tại.');\n      cs.eachRow({includeEmpty:false},(row,ri)=>processCustomsRow(c=>raw(row.getCell(colIndex(c)).value),ri,Array.from({length:106},(_,k)=>raw(row.getCell(k+1).value))));\n    }\n  }\n  stats.customsDifference=Number(check.toFixed(8));\n  if(stats.customsRows===0)log('ERROR','CUSTOMS',`Không có tờ khai hợp lệ ngày ${cfg.date}. Kiểm tra path, sheet và cột mapping.`);\n  if(cfg.requireCustomsDifference&&checkN!==stats.customsRows)log('ERROR','CUSTOMS','Có tờ khai chưa được kiểm tra chênh lệch đầy đủ.');\n  if(Math.abs(check)>cfg.toleranceCustoms||absCheck>cfg.toleranceCustoms)log('ERROR','CUSTOMS',`Chênh lệch tờ khai vượt ±${cfg.toleranceCustoms} (tổng=${check.toFixed(5)}, tổng trị tuyệt đối=${absCheck.toFixed(5)}).`);\n  log('INFO','CUSTOMS',`Đọc ${stats.customsRows} dòng, tổng delta=${stats.customsDifference}.`,`${docs.size} mã hóa đơn sau khi tách hóa đơn kép`);\n  const localSapData = !isApiMode ? $input.first().json : null;\n  const sapItems = isApiMode ? $('07 - SAP YINVLST API').all().map(i=>i.json) : [localSapData.sapPayload];\n  for(const v of sapItems)if(v?.error||v?.statusCode>=400)log('ERROR','SAP_YINVLST',`API SAP trả lỗi: ${txt(v.error?.message||v.message||v.statusCode)}`);\n  const sapRoot=sapItems.length===1?sapItems[0]:sapItems;\n  const candidate=Array.isArray(sapRoot)?sapRoot:pick(sapRoot,cfg.sap.rowsPath);\n  const sapRows=Array.isArray(candidate)?candidate:[];\n  if(!sapRows.length)log('ERROR','SAP_YINVLST',isApiMode?'API YINVLST không trả danh sách invoice theo contract đã cấu hình.':'File SAP local không có dữ liệu invoice.');\n  const yesterday=new Date(Date.parse(cfg.date+'T00:00:00Z')-86400000).toISOString().slice(0,10);\n  const rateItems = !isApiMode\n    ? [localSapData.fxPayload]\n    : hasManualFx\n      ? [{ rateVndPerUsd: Number(cfg.sapLocalRate), validOn: yesterday }]\n      : $('08 - SAP TCURR API').all().map(i=>i.json);\n  const fxObj=rateItems.length===1?rateItems[0]:rateItems[0]||{};\n  if(fxObj?.error||fxObj?.statusCode>=400)log('ERROR','SAP_TCURR',`API tỷ giá trả lỗi: ${txt(fxObj.error?.message||fxObj.message||fxObj.statusCode)}`);\n  fxRate=num(pick(fxObj,cfg.fx.rate));fxDate=date(pick(fxObj,cfg.fx.validOn));\n  if(!Number.isFinite(fxRate)||fxRate<=0)log('ERROR','SAP_TCURR','Thiếu tỷ giá USD/VND dương/hợp lệ trong response SAP.');\n  if(cfg.requireFXValidOn&&fxDate!==yesterday)log('ERROR','SAP_TCURR',`TCURR ngày hiệu lực cần ${yesterday}, nhận ${fxDate||'trống'}.`);\n  log('INFO','SAP_TCURR',`Tỷ giá USD/VND=${fxRate}, ngày hiệu lực=${fxDate}.`);\n  const map=cfg.sap,group=new Map();let sapDelta=0,deltaN=0;\n  for(const d of docs.values())if(!group.has(d.groupKey))group.set(d.groupKey,[]);\n  stats.sapRows=sapRows.length;\n  for(let j=0;j<sapRows.length;j++){\n    const x=sapRows[j],bill=date(pick(x,map.date));\n    const inv=invoice(pick(x,map.invoice));\n    const inCustoms=inv&&expand(inv).some(id=>docs.has(id));\n    if(bill!==cfg.date&&!inCustoms)continue;\n    stats.sapRowsForDate++;\n    const qty=num(pick(x,map.L));\n    if(!inv){log('ERROR','SAP_YINVLST',`SAP record ${j+1} thiếu invoice.`);continue}\n    if(!Number.isFinite(qty)){log('ERROR','SAP_YINVLST',`SAP invoice ${inv} số lượng không hợp lệ.`);continue}\n    if(qty===0){stats.droppedZero++;continue}\n    const delta=num(pick(x,map.reconcileDifference));\n    if(cfg.requireSAPDifference){if(!Number.isFinite(delta))log('ERROR','RECONCILE',`SAP invoice ${inv} thiếu reconciliationDifference (kiểm soát tương đương AC1).`);else{sapDelta+=delta;deltaN++;}}\n    const keys=expand(inv).filter(id=>docs.has(id));\n    if(!keys.length){log('ERROR','RECONCILE',`SAP hóa đơn ${inv} không có trong tờ khai ngày ${cfg.date}.`);continue}\n    stats.matched++;\n    const groupKey=docs.get(keys[0]).groupKey||inv;\n    const decl=[...new Set(keys.flatMap(k=>[...docs.get(k).declarations]))];\n    const note=txt(pick(x,map.P))||`Gia công xuất khẩu theo tờ khai số ${decl.join(' và ')}`;\n    if(!decl.length)log('ERROR','RECONCILE',`SAP hóa đơn ${inv} không có số tờ khai để viết ghi chú.`);\n    const m=pick(x,map.M);\n    if(m==null||txt(m)===''||/^#(N\\/A|REF!|VALUE!|DIV\\/0!)/i.test(txt(m)))log('ERROR','RECONCILE',`SAP hóa đơn ${inv} thiếu/lỗi trường M.`);\n    const row={invoice:groupKey,rawInv:inv,rawRow:x.rawRow||null,colIndices:x.colIndices||null,F:pick(x,map.F),G:pick(x,map.G),K:pick(x,map.K),L:qty,M:m,N:pick(x,map.N),note,decl};\n    if(!group.has(groupKey))group.set(groupKey,[]);\n    group.get(groupKey).push(row);\n  }\n  stats.sapDifference=Number(sapDelta.toFixed(8));\n  if(cfg.requireSAPDifference&&deltaN!==stats.sapRowsForDate-stats.droppedZero)log('ERROR','RECONCILE','Chưa kiểm đủ chênh lệch tài chính từ SAP.');\n  if(cfg.requireSAPDifference&&Math.abs(sapDelta)>cfg.toleranceSAP)log('ERROR','RECONCILE',`Tổng chênh lệch SAP ${sapDelta.toFixed(5)} khác 0. Phải xử lý trước khi xuất.`);\n  if(!stats.sapRowsForDate)log('ERROR','SAP_YINVLST',`SAP không có hóa đơn ngày ${cfg.date}.`);\n  for(const [k,v] of group){\n    if(!v.length){\n      log('ERROR','RECONCILE',`Tờ khai ngày ${cfg.date} có hóa đơn ${k} nhưng không có dữ liệu khớp trong SAP.`);\n      group.delete(k);\n    }else{\n      const docBucket=docs.get(expand(k)[0]);\n      const tkSum=(docBucket?.amounts||[]).reduce((a,b)=>a+b,0);\n      const hasRaw=v.some(item=>item.rawRow);\n      if(hasRaw&&docBucket?.amounts?.length){\n        const sapSum=v.reduce((a,item)=>{\n          const ci=item.colIndices||{iQty:34,iPrice:38,iAmount:40};\n          const bs=num(item.rawRow?.[ci.iAmount]);\n          return a+(Number.isFinite(bs)?bs:0);\n        },0);\n        const grpDelta=Number((tkSum-sapSum).toFixed(4));\n        if(Math.abs(grpDelta)>cfg.toleranceCustoms){\n          log('ERROR','RECONCILE',`Nhóm hóa đơn ${k}: tổng tiền tờ khai (${tkSum.toFixed(2)}) lệch tổng SAP (${sapSum.toFixed(2)}) là ${grpDelta.toFixed(2)} vượt ngưỡng ±${cfg.toleranceCustoms}.`);\n        }\n      }\n    }\n  }\n  if(!group.size)log('ERROR','RECONCILE','Không có nhóm invoice hợp lệ sau đối chiếu.');\n  stats.invoiceGroups=group.size;\n  log('INFO','RECONCILE',`Tổng dữ liệu SAP hợp lệ: ${stats.sapRows} dòng; thuộc kỳ đang xử lý: ${stats.sapRowsForDate} dòng (khớp tờ khai: ${stats.matched} dòng, bỏ ${stats.droppedZero} dòng số lượng = 0, chênh lệch: ${stats.sapDifference}).`);\n  if(localSapData){\n    if(localSapData.skippedCounts){\n      const sc=localSapData.skippedCounts;\n      const parts=[];\n      if(sc.canceled)parts.push(`${sc.canceled} dòng đã hủy`);\n      if(sc.wrongBillingType)parts.push(`${sc.wrongBillingType} dòng khác loại hóa đơn (không phải ZEX)`);\n      if(sc.wrongPlant)parts.push(`${sc.wrongPlant} dòng khác nhà máy (không phải VN20)`);\n      if(sc.wrongCustomer)parts.push(`${sc.wrongCustomer} dòng khách hàng khác`);\n      if(sc.wrongSalesOrg)parts.push(`${sc.wrongSalesOrg} dòng khác mã công ty`);\n      if(parts.length)log('INFO','SAP_FILTER',`Đã lọc bỏ các dòng SAP không thuộc phạm vi xuất hóa đơn: ${parts.join(', ')}.`);\n    }\n    const zeroForDate=(localSapData.droppedZeroRows||[]).filter(z=>z.billingDate===cfg.date||docs.has(z.invoice));\n    if(zeroForDate.length){\n      log('INFO','EXCEPTION_QTY_ZERO',`Đã tự động loại bỏ ${zeroForDate.length} dòng có Số lượng (Quantity) = 0 theo quy trình.`,'Ví dụ: '+zeroForDate.slice(0,8).map(z=>`${z.invoice} (${z.material})`).join(', '));\n    }\n    const pirMissing=(localSapData.missingPirMaterials||[]).filter(p=>p.billingDate===cfg.date||docs.has(p.invoice));\n    if(pirMissing.length){\n      const uniqMat=[...new Set(pirMissing.map(p=>`${p.invoice} (${p.material})`))];\n      log('ERROR','EXCEPTION_PIR_NA',`Thiếu đơn giá trong sheet PIR price (${uniqMat.length} mã bị lỗi #N/A ở cột M) — Đã dừng để bổ sung giá PIR trước khi xuất.`,uniqMat.slice(0,15).join(', '));\n    }\n  }\n  for(const [,items] of group){\n    for(const item of items){\n      if(!item.rawRow)continue;\n      const ci=item.colIndices||{iQty:34,iPrice:38,iAmount:40};\n      const bq=num(item.rawRow[ci.iPrice]),q0=num(item.rawRow[ci.iQty]),bs=num(item.rawRow[ci.iAmount]);\n      if(Number.isFinite(bq)&&Number.isFinite(q0)&&Number.isFinite(bs)){\n        const diffDiv10=Math.abs(Math.round((bq/10)*q0*100)/100-bs);\n        const diffNoDiv10=Math.abs(Math.round(bq*q0*100)/100-bs);\n        if(diffDiv10>0.03&&diffNoDiv10<=0.03){\n          item.fixAA=true;\n          log('WARN','EXCEPTION_AA_DIV10',`Hóa đơn ${item.rawInv} (${item.F}): Thành tiền bị lệch khi chia 10 (lệch ${diffDiv10.toFixed(2)}), hệ thống đã tự động bỏ \"/10\" ở cột đơn giá (cột AA).`,`Đơn giá SAP=${bq}, Số lượng=${q0}, Tổng tiền SAP=${bs}`);\n        }else if(diffDiv10>0.03&&diffNoDiv10>0.03){\n          log('ERROR','EXCEPTION_AC_UNRESOLVED',`Hóa đơn ${item.rawInv} (${item.F}): Cột kiểm tra chênh lệch (AC) vẫn lệch sau khi thử bỏ \"/10\" — Đã dừng để kế toán kiểm tra lại.`, `Đơn giá SAP=${bq}, Số lượng=${q0}, Tổng tiền SAP=${bs}`);\n        }\n      }\n    }\n  }\n  if(stats.sapRows>cfg.maxRows)log('ERROR','LIMIT',`SAP có ${stats.sapRows} dòng, vượt giới hạn ${cfg.maxRows}.`);\n  const sample=vs.getRow(11);\n  let populated=0;\n  for(let c=4;c<=25;c++)if(sample.getCell(c).value!==null&&sample.getCell(c).value!==undefined)populated++;\n  if(populated<4)log('ERROR','TEMPLATE','Dòng mẫu 11 (D:Y) không có đủ ô được định nghĩa.');\n  const last=vs.lastRow?.number||11;\n  for(let r=12;r<=last;r++)if(vs.getRow(r).hasValues){log('ERROR','TEMPLATE',`Template có dữ liệu ở dòng ${r}. Phải dùng bản trống sau dòng 11.`);break}\n  if(defects.length)throw new Error('RECONCILIATION_BLOCKED');\n  // Write only after all strict checks pass. Never upload or issue invoice.\n  vs.getCell('V11').value=String(fxRate);\n  const copyVal=v=>{if(v==null||typeof v!=='object')return v;if(v instanceof Date)return new Date(v.getTime());return JSON.parse(JSON.stringify(v))};\n  const shift=(formula,off)=>String(formula).replace(/(?<![\\w])([\\$]?)([A-Z]{1,3})([\\$]?)(\\d+)(?![\\w])/g,(m,a,c,b,r)=>a+c+b+(b?r:String(Number(r)+off)));\n  const tplSnap=Array.from({length:25},(_,idx)=>{const cell=sample.getCell(idx+1);return {style:copyVal(cell.style||{}),value:copyVal(cell.value)};});\n  const tplHeight=sample.height;\n  const copySnapToRow=(dst,from,to,off)=>{\n    for(let c=from;c<=to;c++){const s=tplSnap[c-1],t=dst.getCell(c);if(s.style&&Object.keys(s.style).length)t.style=copyVal(s.style);t.value=copyVal(s.value);\n      if(t.value&&typeof t.value==='object'&&t.value.formula){t.value={...t.value,formula:shift(t.value.formula,off),result:undefined};}\n    }\n    if(tplHeight)dst.height=tplHeight;\n  };\n  let rowNumber=11,hasFormula=false,groupNum=Number(tplSnap[1].value)||1;\n  for(const [inv,items] of group){\n    for(const item of items){\n      const r=vs.getRow(rowNumber++);\n      if(r.number>11)copySnapToRow(r,2,25,r.number-11);\n      if(Array.from({length:22},(_,k)=>r.getCell(k+4).value).some(v=>v&&typeof v==='object'&&v.formula))hasFormula=true;\n      r.getCell('B').value=groupNum;r.getCell('C').value=null;r.getCell('AA').value=item.F;r.getCell('AB').value=item.G;\n      r.getCell('AF').value=item.K;r.getCell('AG').value=item.L;r.getCell('AH').value=item.M;r.getCell('AI').value=item.N;\n      stats.details++;\n    }\n    const notes=[...new Set(items.map(r=>r.note).filter(Boolean))];\n    if(items.length){const nr=vs.getRow(rowNumber++);copySnapToRow(nr,2,22,nr.number-11);\n      nr.getCell('B').value=groupNum;nr.getCell('C').value=null;nr.getCell('Y').value=2;nr.getCell('AA').value=null;nr.getCell('AB').value=notes.join(' và ');\n      nr.getCell('AF').value=null;nr.getCell('AG').value=null;nr.getCell('AH').value=null;nr.getCell('AI').value=null;\n      stats.noteRows++;groupNum++;\n    }\n  }\n  tw.calcProperties.fullCalcOnLoad=true;\n  if(hasFormula)log('WARN','TEMPLATE','D:Y có công thức sao chép. ExcelJS không tính công thức; phải mở và cho Excel recalculate trước khi upload Viettel.');\n  xlsx=await tw.xlsx.writeBuffer();\n  log('INFO','OUTPUT',`Đã tạo ${stats.details} dòng chi tiết và ${stats.noteRows} dòng ghi chú, chờ kiểm tra trước upload Viettel.`);\n  if(localSapData&&localSapData.workFilePath){\n    const fs=require('fs');\n    if(fs.existsSync(localSapData.workFilePath)){\n      const workWb=new ExcelJS.Workbook();\n      await workWb.xlsx.readFile(localSapData.workFilePath);\n      const tkWs=workWb.getWorksheet('Tờ khai');\n      if(tkWs){\n        const existingTkDecls=new Set();\n        let lastTkRow=10;\n        tkWs.eachRow((r,rn)=>{\n          if(rn<11)return;\n          const declVal=txt(r.getCell('I').value);\n          if(declVal)existingTkDecls.add(declVal);\n          if(txt(r.getCell('C').value)||declVal)lastTkRow=Math.max(lastTkRow,rn);\n        });\n        // Append BaoCaoToKhai rows for cfg.date if not yet present in sheet Tờ khai\n        let tkAppended=0;\n        const tplTkRow=tkWs.getRow(lastTkRow);\n        const resolveTkFormula=(cellVal,dstRow)=>{\n          if(cellVal&&typeof cellVal==='object'){\n            if(cellVal.formula)return {formula:shift(cellVal.formula,dstRow-tplTkRow.number)};\n            if(cellVal.sharedFormula){\n              const mCell=tkWs.getCell(cellVal.sharedFormula).value;\n              const mRow=Number(String(cellVal.sharedFormula).replace(/^[A-Z]+/,''))||11;\n              if(mCell&&mCell.formula)return {formula:shift(mCell.formula,dstRow-mRow)};\n            }\n          }\n          return copyVal(cellVal);\n        };\n        const declToCustoms=new Map(rawCustomsRows.map(cr=>[cr.decl,cr]));\n        for(const cr of rawCustomsRows){\n          if(!cr.decl||existingTkDecls.has(cr.decl))continue;\n          const nr=++lastTkRow;\n          const dstTk=tkWs.getRow(nr);\n          for(let c=1;c<=6;c++){\n            const sv=tplTkRow.getCell(c).value;\n            const ss=tplTkRow.getCell(c).style;\n            if(ss&&Object.keys(ss).length)dstTk.getCell(c).style=copyVal(ss);\n            dstTk.getCell(c).value=resolveTkFormula(sv,nr);\n          }\n          for(let c=0;c<Math.min(106,cr.arr.length);c++){\n            const v=cr.arr[c];\n            dstTk.getCell(8+c).value=(v===undefined||v==='')?null:copyVal(v);\n          }\n          existingTkDecls.add(cr.decl);\n          tkAppended++;\n        }\n        if(tkAppended>0)log('INFO','TO_KHAI_APPEND',`Đã thêm ${tkAppended} dòng tờ khai mới vào sheet Tờ khai và điền công thức cột A–F.`);\n        const seenTkInv=new Set();\n        const clearedDupTk=[];\n        tkWs.eachRow((r,rn)=>{\n          if(rn<11)return;\n          const declVal=txt(r.getCell('I').value);\n          const fromCustoms=declToCustoms.get(declVal);\n          const dVal=fromCustoms?cfg.date:date(r.getCell('D').value);\n          const invVal=fromCustoms?fromCustoms.inv:invoice(r.getCell('C').value);\n          if(dVal===cfg.date&&invVal){\n            if(seenTkInv.has(invVal)){\n              if(r.getCell('B').value!==null){r.getCell('B').value=null;clearedDupTk.push(`Dòng ${rn} (${invVal})`);}\n            }else seenTkInv.add(invVal);\n          }\n        });\n        if(clearedDupTk.length)log('INFO','EXCEPTION_TK_DUP_INVOICE',`Đã xóa công thức cột Số tiền (cột B) tại ${clearedDupTk.length} dòng trùng số hóa đơn trên sheet Tờ khai để tránh cộng trùng.`,clearedDupTk.join(', '));\n      }\n      const msWs=workWb.getWorksheet('Ms Tiên invoices');\n      if(msWs){\n        let lastMsRow=3;\n        const existingMsInvs=new Set();\n        msWs.eachRow((r,rn)=>{\n          if(rn<4)return;\n          const rInv=txt(r.getCell('R').value)||txt(r.getCell('T').value);\n          if(rInv)existingMsInvs.add(rInv);\n          if(txt(r.getCell('B').value)||rInv||txt(r.getCell('AE').value))lastMsRow=Math.max(lastMsRow,rn);\n        });\n        const tplMsRow=msWs.getRow(lastMsRow);\n        const tplD=txt(tplMsRow.getCell('D').value)||cfg.companyCode;\n        const tplE=txt(tplMsRow.getCell('E').value)||'';\n        let msAdded=0,msFixedAA=0,msMultiDecl=0;\n        const multiDeclLogged=new Set();\n        for(const [,items] of group){\n          for(const item of items){\n            if(!item.rawRow||existingMsInvs.has(item.rawInv))continue;\n            const rn=++lastMsRow;\n            const dst=msWs.getRow(rn);\n            for(let c=2;c<=30;c++){\n              const sc=tplMsRow.getCell(c).style;\n              if(sc&&Object.keys(sc).length)dst.getCell(c).style=copyVal(sc);\n            }\n            for(let i=0;i<item.rawRow.length;i++)dst.getCell(31+i).value=item.rawRow[i]===''?null:item.rawRow[i];\n            dst.getCell('B').value={formula:`VLOOKUP(R${rn},'Tờ khai'!C:D,2,0)`};\n            dst.getCell('C').value={formula:`IF(O${rn}=O${rn-1},C${rn-1},C${rn-1}+1)`};\n            dst.getCell('D').value=tplD;\n            dst.getCell('E').value=tplE;\n            dst.getCell('F').value={formula:`W${rn}`};\n            dst.getCell('G').value={formula:`X${rn}`};\n            dst.getCell('K').value={formula:`Y${rn}`};\n            dst.getCell('L').value={formula:`Z${rn}`};\n            dst.getCell('M').value={formula:`_xlfn.XLOOKUP(F${rn},'PIR price'!B:B,'PIR price'!N:N)`};\n            dst.getCell('N').value={formula:`ROUND(M${rn}*L${rn},4)`};\n            dst.getCell('O').value={formula:`_xlfn.XLOOKUP(R${rn},'Tờ khai'!C:C,'Tờ khai'!I:I)`};\n            if(item.decl.length>1){\n              msMultiDecl++;\n              if(!multiDeclLogged.has(item.rawInv)){\n                multiDeclLogged.add(item.rawInv);\n                log('INFO','EXCEPTION_MULTI_DECL_P',`Hóa đơn ${item.rawInv} đi kèm ${item.decl.length} tờ khai → đã tự động nối thêm số tờ khai \"${item.decl.slice(1).join(' và ')}\" vào cột Diễn giải (cột P).`);\n              }\n              dst.getCell('P').value={formula:`\"Gia công xuất khẩu theo tờ khai số\"&\" \"&O${rn}&\" và ${item.decl.slice(1).join(' và ')}\"`};\n            }else{\n              dst.getCell('P').value={formula:`\"Gia công xuất khẩu theo tờ khai số\"&\" \"&O${rn}`};\n            }\n            dst.getCell('R').value=item.invoice;\n            dst.getCell('T').value={formula:`AF${rn}`};\n            dst.getCell('U').value={formula:`AH${rn}`};\n            dst.getCell('V').value={formula:`AP${rn}`};\n            dst.getCell('W').value={formula:`AI${rn}`};\n            dst.getCell('X').value={formula:`BI${rn}`};\n            dst.getCell('Y').value={formula:`BN${rn}`};\n            dst.getCell('Z').value={formula:`BM${rn}`};\n            if(item.fixAA){\n              dst.getCell('AA').value={formula:`BQ${rn}`};\n              msFixedAA++;\n            }else{\n              dst.getCell('AA').value={formula:`BQ${rn}/10`};\n            }\n            dst.getCell('AB').value={formula:`ROUND(AA${rn}*Z${rn},2)`};\n            dst.getCell('AC').value={formula:`AB${rn}-BS${rn}`};\n            msAdded++;\n          }\n        }\n        workWb.calcProperties.fullCalcOnLoad=true;\n        const outWorkPath=`${cfg.outputFolder}/${localSapData.workFilePath.split(/[\\\\/]/).pop()}`;\n        fs.writeFileSync(outWorkPath,Buffer.from(await workWb.xlsx.writeBuffer()));\n        log('INFO','MS_TIEN_INVOICE',`Đã cập nhật ${msAdded} dòng vào sheet Ms Tiên invoices và điền đầy đủ công thức (${msMultiDecl} dòng nối nhiều tờ khai ở cột P, ${msFixedAA} dòng tự bỏ /10 ở cột AA).`,`File đã lưu: ${outWorkPath}`);\n      }\n    }\n  }\n} catch(e){\n  if(!defects.length||e.message!=='RECONCILIATION_BLOCKED')log('ERROR','ENGINE',e.message||String(e));\n}\nconst status=defects.length?'BLOCKED':'READY_FOR_REVIEW';\nconst declSummary=processedDecls.length?processedDecls.join(', '):'không có';\nif(status==='READY_FOR_REVIEW'){\n  const fs=require('fs');\n  const monthFolder=`${cfg.date.slice(5,7)}.${cfg.date.slice(0,4)}`;\n  const movedDirs=[];\n  for(const dir of processedCustomsDirs){\n    const normDir=String(dir).replace(/\\\\/g,'/').replace(/\\/$/,'');\n    const folderName=normDir.split('/').pop();\n    const parentDir=normDir.slice(0,normDir.lastIndexOf('/'));\n    if(!folderName||!/^TK/i.test(folderName)||normDir.includes(`/${monthFolder}/`))continue;\n    if(fs.existsSync(normDir)){\n      const archiveRoot=`${parentDir}/${monthFolder}`;\n      fs.mkdirSync(archiveRoot,{recursive:true});\n      let destDir=`${archiveRoot}/${folderName}`;\n      if(fs.existsSync(destDir))destDir=`${archiveRoot}/${folderName}_${Date.now()}`;\n      try{\n        fs.renameSync(normDir,destDir);\n      }catch{\n        fs.cpSync(normDir,destDir,{recursive:true});\n        fs.rmSync(normDir,{recursive:true,force:true});\n      }\n      movedDirs.push(`${normDir} -> ${destDir}`);\n    }\n  }\n  if(movedDirs.length){\n    log('INFO','TO_KHAI_ARCHIVE',`Đã xử lý ${processedDecls.length} số tờ khai ngày ${cfg.date} (${declSummary}) và đã chuyển thư mục vào \"${monthFolder}\" để tránh xử lý lại.`,`Trạng thái chuyển: ĐÃ CHUYỂN (${movedDirs.join('; ')})`);\n  }else{\n    log('INFO','TO_KHAI_ARCHIVE',`Đã xử lý ${processedDecls.length} số tờ khai ngày ${cfg.date} (${declSummary}).`,`Trạng thái chuyển: KHÔNG CẦN CHUYỂN (đã nằm trong thư mục tháng hoặc chạy qua bộ nhớ test)`);\n  }\n}else{\n  log('WARN','TO_KHAI_ARCHIVE',`Chưa chuyển thư mục tờ khai ngày ${cfg.date} (${declSummary}) do đối soát bị chặn (BLOCKED).`,`Trạng thái chuyển: CHƯA CHUYỂN — giữ nguyên tại thư mục gốc để kiểm tra và chạy lại.`);\n}\nconst report={workflow:'InvoiceFlow n8n E2E', status, startedAt, finishedAt:new Date().toISOString(), requestedBy:cfg.requestedBy,\n  cfg:{profile:cfg.profile,company:cfg.companyCode,date:cfg.date,customsPath:cfg.customsPath,templatePath:cfg.templatePath,outputFolder:cfg.outputFolder,\n    SAPInvoiceEndpoint:cfg.sapInvoiceUrl,SAPRateEndpoint:cfg.sapRateUrl},\n  sources:{customsFile:params.customs.fileName,customsSHA256:customsHash,customsSelection:params.customs.selection,templateFile:params.template.fileName},\n  stats, rate:{USD_VND:fxRate,validOn:fxDate}, errors:defects,warnings,steps,\n  control:{sapApiContractVerified:!!cfg.sapContractVerified,customsMappingVerified:!!cfg.customsMappingVerified,templateVerified:!!cfg.templateMappingVerified},\n  publication:'NOT_UPLOADED_TO_VIETTEL',reviewRequired:true};\nconst reportJSON=JSON.stringify(report,null,2);\nconst reportCSV=['time,level,step,message,details',...steps.map(x=>[x.time,x.level,x.step,x.message,x.details].map(csv).join(','))].join('\\r\\n');\nconst reportHTML=`<!doctype html><html lang=\"vi\"><head><meta charset=\"utf-8\"><title>InvoiceFlow Audit ${escape(cfg.date)}</title><style>body{font-family:Arial,sans-serif;background:#f7f9fc;padding:28px;color:#10233f}main{max-width:1100px;margin:auto;background:white;padding:30px;border-radius:14px}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #e1e6ee;text-align:left;padding:9px;vertical-align:top}th{background:#f1f4fa}.ERROR{color:#bb172a}.WARN{color:#a76a10}.INFO{color:#126b3d}.summary{display:flex;gap:16px;flex-wrap:wrap}.summary>div{background:#eef3fa;padding:12px;border-radius:9px}code{overflow-wrap:anywhere}h1{margin-top:0}</style></head><body><main><h1>InvoiceFlow — Audit ${escape(status)}</h1><p><b>Kỳ:</b> ${escape(cfg.date)} · <b>Company:</b> ${escape(cfg.companyCode)} · <b>User:</b> ${escape(cfg.requestedBy)}</p><div class=\"summary\"><div>Hải quan: <b>${stats.customsRows}</b></div><div>SAP: <b>${stats.sapRowsForDate}</b></div><div>Chi tiết: <b>${stats.details}</b></div><div>Ghi chú: <b>${stats.noteRows}</b></div><div>Lỗi: <b>${defects.length}</b></div><div>Cảnh báo: <b>${warnings.length}</b></div></div><h2>Thông số</h2><p>Tờ khai: <code>${escape(params.customs.fileName)}</code> · FX USD/VND: ${escape(fxRate)} · FX date: ${escape(fxDate)}</p><p><b>Không phát hành Viettel.</b> Phải kiểm tra và phê duyệt file Excel trước khi tải lên.</p><h2>Audit trail</h2><table><thead><tr><th>Thời gian</th><th>Mức</th><th>Bước</th><th>Thông tin</th><th>Chi tiết</th></tr></thead><tbody>${steps.map(s=>`<tr><td>${escape(s.time)}</td><td class=\"${escape(s.level)}\">${escape(s.level)}</td><td>${escape(s.step)}</td><td>${escape(s.message)}</td><td>${escape(s.details)}</td></tr>`).join('')}</tbody></table><h2>Nguồn</h2><p>SHA-256 tờ khai: <code>${escape(customsHash)}</code></p><p>Run time: ${escape(startedAt)} → ${escape(report.finishedAt)}</p></main></body></html>`;\nconst binary={};\nif(ExcelJS){\n  const stepNames={\n    SOURCE:'1. Đọc file đầu vào',\n    CUSTOMS:'2. Kiểm tra tờ khai HQ',\n    SAP_TCURR:'3. Kiểm tra tỷ giá USD/VND',\n    SAP_FILTER:'4. Lọc dữ liệu SAP',\n    RECONCILE:'5. Đối chiếu HQ & SAP',\n    EXCEPTION_QTY_ZERO:'Ngoại lệ: Số lượng = 0',\n    EXCEPTION_PIR_NA:'Lỗi: Thiếu giá PIR (#N/A)',\n    EXCEPTION_AA_DIV10:'Ngoại lệ: Sửa đơn giá (/10)',\n    EXCEPTION_AC_UNRESOLVED:'Lỗi: Lệch tiền chưa xử lý',\n    TO_KHAI_APPEND:'6. Cập nhật sheet Tờ khai',\n    EXCEPTION_TK_DUP_INVOICE:'Ngoại lệ: Trùng hóa đơn Tờ khai',\n    EXCEPTION_MULTI_DECL_P:'Ngoại lệ: Hóa đơn nhiều tờ khai',\n    MS_TIEN_INVOICE:'7. Cập nhật Ms Tiên invoices',\n    OUTPUT:'8. Tạo file Upload Viettel',\n    TO_KHAI_ARCHIVE:'9. Lưu trữ thư mục Tờ khai',\n    TEMPLATE:'Lưu ý khi mở Excel',\n    ENGINE:'Lỗi hệ thống'\n  };\n  const levelNames={INFO:'Thông tin',WARN:'Cảnh báo',ERROR:'Lỗi (Dừng)'};\n  const fmtVnTime=(iso)=>{\n    const d=new Date(Date.parse(iso)+7*3600000);\n    if(!Number.isFinite(d.getTime()))return iso;\n    const pad=n=>String(n).padStart(2,'0');\n    return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;\n  };\n  const logWb=new ExcelJS.Workbook();\n  const sumWs=logWb.addWorksheet('Tom_tat');\n  sumWs.columns=[{header:'Mục',key:'k',width:32},{header:'Giá trị',key:'v',width:68}];\n  const sumHdr=sumWs.getRow(1);\n  if(sumHdr&&sumHdr.eachCell)sumHdr.eachCell(c=>{c.font={bold:true};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFEEF3FA'}};});\n  const statusLabel=status==='READY_FOR_REVIEW'?'ĐẠT - Sẵn sàng kiểm tra & xuất Viettel':'BỊ CHẶN - Vui lòng xem chi tiết bên sheet Nhat_ky_xu_ly';\n  for(const [k,v] of [\n    ['Kết quả xử lý',statusLabel],['Ngày hóa đơn',cfg.date],['Mã công ty',cfg.companyCode],['Người thực hiện',cfg.requestedBy],\n    ['File tờ khai HQ',params.customs.fileName],['Tỷ giá USD/VND',fxRate??''],['Ngày hiệu lực tỷ giá',fxDate??''],\n    ['Số dòng tờ khai HQ',stats.customsRows],['Số dòng SAP trong ngày',stats.sapRowsForDate],\n    ['Số dòng chi tiết (Upload Viettel)',stats.details],['Số dòng ghi chú (Upload Viettel)',stats.noteRows],\n    ['Số lỗi cần xử lý',defects.length],['Số cảnh báo',warnings.length],\n    ['Bắt đầu lúc',fmtVnTime(startedAt)],['Kết thúc lúc',fmtVnTime(report.finishedAt)]\n  ]) sumWs.addRow({k,v});\n  const logWs=logWb.addWorksheet('Nhat_ky_xu_ly');\n  logWs.columns=[{header:'Thời gian',key:'time',width:20},{header:'Mức độ',key:'level',width:14},{header:'Bước thực hiện',key:'step',width:30},{header:'Nội dung chi tiết',key:'message',width:68},{header:'Ghi chú thêm',key:'details',width:52}];\n  const hdr=logWs.getRow(1);\n  if(hdr&&hdr.eachCell)hdr.eachCell(c=>{c.font={bold:true};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFEEF3FA'}};});\n  for(const s of steps){\n    const r=logWs.addRow({time:fmtVnTime(s.time),level:levelNames[s.level]||s.level,step:stepNames[s.step]||s.step,message:s.message,details:s.details});\n    const lvlColor=s.level==='ERROR'?'FFBB172A':s.level==='WARN'?'FFA76A10':'FF126B3D';\n    if(r&&r.getCell){\n      r.getCell(2).font={bold:true,color:{argb:lvlColor}};\n      r.getCell(4).alignment={wrapText:true,vertical:'top'};\n      r.getCell(5).alignment={wrapText:true,vertical:'top'};\n    }\n  }\n  const auditXlsxBuf=await logWb.xlsx.writeBuffer();\n  try{const fs=require('fs');if(fs.existsSync(cfg.outputFolder))fs.writeFileSync(`${cfg.outputFolder}/${filenames.audit_xlsx}`,Buffer.from(auditXlsxBuf));}catch{}\n  binary.audit_xlsx=await this.helpers.prepareBinaryData(Buffer.from(auditXlsxBuf),filenames.audit_xlsx,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');\n}\nif(status==='READY_FOR_REVIEW'&&xlsx)binary.excel=await this.helpers.prepareBinaryData(Buffer.from(xlsx),filenames.excel,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');\nreturn [{json:{status,summary:stats,errors:defects,warnings,report,filenames,outputPath:`${cfg.outputFolder}/${filenames.excel}`},binary}];\n"
+      },
+      "position": [
+        2190,
+        260
+      ]
+    },
+    {
+      "id": "10",
+      "name": "10 - Trang thai doi soat",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5fd285c3-ea02-41df-9229-1fc66cf3d762",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "READY_FOR_REVIEW",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2420,
+        260
+      ]
+    },
+    {
+      "id": "11",
+      "name": "11 - Luu Excel tren server share",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('02 - Config va bao ve path').first().json.cfg.outputFolder + '/' + $('09 - Tao Excel Viettel va Audit').first().json.filenames.excel }}",
+        "dataPropertyName": "excel",
+        "options": {}
+      },
+      "position": [
+        2660,
+        100
+      ]
+    },
+    {
+      "id": "16",
+      "name": "16 - End Form Tai file",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "completionTitle": "Đối soát đạt — Đã lưu kết quả vào results",
+        "completionMessage": "={{ 'Đã tạo ' + $('09 - Tao Excel Viettel va Audit').first().json.summary.details + ' dòng hóa đơn và ' + $('09 - Tao Excel Viettel va Audit').first().json.summary.noteRows + ' dòng ghi chú. Các file Excel kết quả và Audit Log đã được lưu vào thư mục results/. Chưa upload Viettel.' }}",
+        "options": {}
+      },
+      "position": [
+        1960,
+        180
+      ]
+    },
+    {
+      "id": "18",
+      "name": "18 - End Form Tai log loi",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "completionTitle": "Đối soát chưa đạt — Đã lưu Audit Log vào results",
+        "completionMessage": "={{ 'Bị chặn do ' + $('09 - Tao Excel Viettel va Audit').first().json.errors.length + ' lỗi: ' + $('09 - Tao Excel Viettel va Audit').first().json.errors.join(' | ') + '. Vui lòng kiểm tra file *_AUDIT.xlsx trong thư mục results/.' }}",
+        "options": {}
+      },
+      "position": [
+        1720,
+        420
+      ]
+    },
+    {
+      "id": "sticky",
+      "name": "CẦN CẤU HÌNH SAP/API VÀ MAPPING TRƯỚC UAT",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "parameters": {
+        "content": "## IT triển khai một lần\n- Mount `/files/finance` từ share (chỉ đọc nguồn, ghi vào results).\n- Sửa 2 endpoint SAP trong Config và gắn Credentials Basic Auth tại 2 HTTP Request. **YINVLST là custom T-code, phải có API/middleware thực tế.**\n- Xác minh mapping BAOCAOTOKHAI A:DB, cột Viettel, SAP API normalized JSON, rồi bật 4 flag `*Verified` tại node 02.\n- Cài `exceljs` cho JS task runner, allowlist.\n- n8n Form không thể browse folder trên ổ C client để n8n server đọc.\n- Kết quả cuối CHỈ chờ review, tuyệt đối không upload Viettel.\n- Nếu cần chọn Date modified mới nhất thay vì timestamp filename, thay node chọn bằng bộ metadata SharePoint/OneDrive/SMB list.",
+        "height": 360,
+        "width": 470
+      },
+      "position": [
+        400,
+        560
+      ]
+    },
+    {
+      "id": "06b",
+      "name": "06b - Chon nguon SAP",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sap_mode_api",
+              "leftValue": "={{ $('02 - Config va bao ve path').first().json.cfg.sapSourceMode }}",
+              "rightValue": "SAP_API",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        460,
+        480
+      ]
+    },
+    {
+      "id": "07L",
+      "name": "07L - Doc file SAP tu folder",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('02 - Config va bao ve path').first().json.cfg.sapLocalPath }}",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "position": [
+        1580,
+        440
+      ]
+    },
+    {
+      "id": "08L",
+      "name": "08L - Chuan hoa SAP tu Excel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/**\n * InvoiceFlow E2E | Gate 1 (LOCAL_FOLDER): Parse SAP Excel file from mounted finance share\n * Supports both raw SAP export (e.g. HK63 08.26.XLSX, header row 1) and processed Ms Tiên invoices (header row 3).\n * Normalizes rows into the exact SAP YINVLST + TCURR contract expected by 09_engine.js.\n */\nconst item = $input.first();\nconst cfg = $('02 - Config va bao ve path').first().json.cfg;\nif (!item.binary || !item.binary.data) {\n  throw new Error('LOCAL_SAP_NOT_FOUND: Không đọc được file SAP tại ' + cfg.sapLocalPath);\n}\nconst XLSX = require('xlsx');\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst wb = XLSX.read(buf, { type: 'buffer' });\nconst sheetName = cfg.sapLocalSheet && wb.SheetNames.includes(cfg.sapLocalSheet) ? cfg.sapLocalSheet : wb.SheetNames[0];\nconst ws = wb.Sheets[sheetName];\nif (!ws) throw new Error('LOCAL_SAP_SHEET_NOT_FOUND: Không tìm thấy sheet ' + sheetName);\n\nconst rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });\nconst toIsoDate = (v) => {\n  if (typeof v === 'number' && v > 20000 && v < 100000) {\n    return new Date(Date.UTC(1899, 11, 30) + Math.trunc(v) * 86400000).toISOString().slice(0, 10);\n  }\n  const s = String(v ?? '').trim();\n  let m = s.match(/^(\\d{1,2})[./-](\\d{1,2})[./-](\\d{4})/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  m = s.match(/^(\\d{4})[./-](\\d{1,2})[./-](\\d{1,2})/);\n  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;\n  return '';\n};\nconst toNum = (v) => {\n  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;\n  const n = Number(String(v ?? '').replace(/,/g, '').trim());\n  return Number.isFinite(n) ? n : 0;\n};\nconst toQtyStrict = (v) => {\n  if (typeof v === 'number') return Number.isFinite(v) ? v : 'INVALID_QTY';\n  const s = String(v ?? '').replace(/,/g, '').trim();\n  if (!s) return 0;\n  const n = Number(s);\n  return Number.isFinite(n) ? n : `INVALID:${s}`;\n};\n\nconst isRawSap = rows.length > 0 && String(rows[0][0] || '').trim() === 'Billing type' && String(rows[0][1] || '').trim() === 'Billing Doc. No';\nconst value = [];\n\n// Dynamic discovery of working file \"1. Sale invoices to upload*.xlsx\" for the target month/year\nconst fs = require('fs');\nconst pirMap = new Map();\nlet foundWorkFile = '';\nconst yyyy = cfg.date.slice(0, 4), mm = cfg.date.slice(5, 7);\nconst dirCandidates = [\n  `/files/finance/5. Sale invoices/${yyyy}/${mm}.${yyyy}`,\n  '/files/finance/sap'\n];\nfor (const dir of dirCandidates) {\n  if (!fs.existsSync(dir)) continue;\n  const files = fs.readdirSync(dir).filter(fn => /^1\\.\\s*Sale invoices to upload.*\\.xlsx?$/i.test(fn) && !fn.startsWith('~$'));\n  if (files.length) {\n    foundWorkFile = `${dir}/${files[0]}`;\n    const pWb = XLSX.read(fs.readFileSync(foundWorkFile), { type: 'buffer' });\n    const pWs = pWb.Sheets['PIR price'];\n    if (pWs) {\n      const pRows = XLSX.utils.sheet_to_json(pWs, { header: 1, defval: '' });\n      for (let i = 2; i < pRows.length; i++) {\n        const mat = String(pRows[i][0] || pRows[i][1] || '').trim();\n        const price = Number(pRows[i][13]);\n        if (mat && Number.isFinite(price) && price > 0) pirMap.set(mat, price);\n      }\n    }\n    break;\n  }\n}\n\nconst skippedCounts = { canceled: 0, wrongSalesOrg: 0, wrongBillingType: 0, wrongPlant: 0, wrongCustomer: 0 };\nconst missingPirMaterials = [];\nconst droppedZeroRows = [];\n\nif (isRawSap) {\n  // Resolve SAP columns dynamically by header name (fallback to standard HK63 indices)\n  const hdr = rows[0].map(h => String(h || '').trim().toLowerCase());\n  const colIdx = (names, fallback) => {\n    for (const n of names) {\n      const idx = hdr.indexOf(n.toLowerCase());\n      if (idx >= 0) return idx;\n    }\n    return fallback;\n  };\n  const iBillType = colIdx(['Billing type'], 0);\n  const iInv = colIdx(['Billing Doc. No', 'Billing Document'], 1);\n  const iDate = colIdx(['Billing Date'], 3);\n  const iMat = colIdx(['Material Code', 'Material'], 4);\n  const iPlant = colIdx(['Plant'], 15);\n  const iCust = colIdx(['Coats Customer Name', 'Customer Name'], 17);\n  const iItem = colIdx(['ITEM', 'Material Description', 'Description'], 30);\n  const iQty = colIdx(['Qty', 'Bill.qty', 'Billed Quantity'], 34);\n  const iUom = colIdx(['Unit of Measure', 'Sales Unit'], 35);\n  const iPrice = colIdx(['Price', 'Net Price'], 38);\n  const iCanceled = colIdx(['Canceled', 'Cancelled'], 39);\n  const iAmount = colIdx(['Amount', 'Net Value'], 40);\n  const iSalesOrg = colIdx(['Sales Organization'], 47);\n\n  for (let i = 1; i < rows.length; i++) {\n    const r = rows[i];\n    const billingType = String(r[iBillType] || '').trim().toUpperCase();\n    const inv = String(r[iInv] || '').trim();\n    const billingDate = toIsoDate(r[iDate]);\n    const mat = String(r[iMat] || '').trim();\n    const plant = String(r[iPlant] || '').trim().toUpperCase();\n    const custName = String(r[iCust] || '').trim().toUpperCase();\n    const canceled = String(r[iCanceled] || '').trim();\n    const salesOrg = String(r[iSalesOrg] || '').trim().toUpperCase();\n    if (!inv || !billingDate) continue;\n    if (canceled) { skippedCounts.canceled++; continue; }\n    if (salesOrg && cfg.companyCode && salesOrg !== cfg.companyCode) { skippedCounts.wrongSalesOrg++; continue; }\n    if (billingType && billingType !== 'ZEX') { skippedCounts.wrongBillingType++; continue; }\n    if (plant && plant !== 'VN20') { skippedCounts.wrongPlant++; continue; }\n    if (custName && !custName.includes('UNITED WELL')) { skippedCounts.wrongCustomer++; continue; }\n    const qty = toQtyStrict(r[iQty]);\n    const qtyValid = typeof qty === 'number';\n    if (qty === 0) droppedZeroRows.push({ invoice: inv, material: mat, billingDate });\n    const hasPir = pirMap.has(mat);\n    if (qtyValid && qty !== 0 && pirMap.size > 0 && !hasPir) {\n      missingPirMaterials.push({ invoice: inv, material: mat, billingDate });\n    }\n    const pirPrice = hasPir ? pirMap.get(mat) : toNum(r[iPrice]);\n    const amt = (qtyValid && hasPir) ? Number((qty * pirPrice).toFixed(6)) : toNum(r[iAmount]);\n    value.push({\n      invoice: inv,\n      billingDate,\n      contentF: mat,\n      contentG: String(r[iItem] || '').trim(),\n      fieldK: String(r[iUom] || '').trim(),\n      quantity: qty,\n      fieldM: pirPrice,\n      fieldN: amt,\n      declarationText: '',\n      reconcileDifference: 0,\n      rawRow: r.slice(0, 70),\n      colIndices: { iQty, iPrice, iAmount }\n    });\n  }\n} else {\n  // Processed Ms Tiên invoices: Row 3 (index 2) is header\n  for (let i = 3; i < rows.length; i++) {\n    const r = rows[i];\n    const inv = String(r[19] || r[31] || '').trim();\n    const billingDate = toIsoDate(r[1] || r[33]);\n    if (!inv || !billingDate) continue;\n    const salesOrg = String(r[77] || '').trim().toUpperCase();\n    if (salesOrg && cfg.companyCode && salesOrg !== cfg.companyCode) continue;\n    value.push({\n      invoice: inv,\n      billingDate,\n      contentF: String(r[5] || '').trim(),\n      contentG: String(r[6] || '').trim(),\n      fieldK: String(r[10] || '').trim(),\n      quantity: toNum(r[11]),\n      fieldM: toNum(r[12]),\n      fieldN: toNum(r[13]),\n      declarationText: String(r[15] || '').trim(),\n      reconcileDifference: toNum(r[28])\n    });\n  }\n}\n\nconst yesterday = new Date(Date.parse(cfg.date + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);\nreturn [{\n  json: {\n    sapSourceMode: 'LOCAL_FOLDER',\n    workFilePath: foundWorkFile,\n    pirCount: pirMap.size,\n    skippedCounts,\n    missingPirMaterials,\n    droppedZeroRows,\n    sapPayload: { value },\n    fxPayload: {\n      rateVndPerUsd: Number(cfg.sapLocalRate || 0),\n      validOn: yesterday\n    }\n  }\n}];\n"
+      },
+      "position": [
+        1820,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-stage1-08m",
+      "name": "08M - Hop luong Du lieu Stage 1",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1320,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fx-override-check",
+              "leftValue": "={{ Number($('02 - Config va bao ve path').first().json.cfg.sapLocalRate || 0) > 0 ? 'YES' : 'NO' }}",
+              "rightValue": "YES",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-fx-override-07c",
+      "name": "07c - Kiem tra ty gia Form",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "01 - Form 1 Click": {
+      "main": [
+        [
+          {
+            "node": "02 - Config va bao ve path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 - Config va bao ve path": {
+      "main": [
+        [
+          {
+            "node": "03 - Doc Baocaotokhai tu share",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "06b - Chon nguon SAP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 - Doc Baocaotokhai tu share": {
+      "main": [
+        [
+          {
+            "node": "04 - Chon file to khai",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 - Chon file to khai": {
+      "main": [
+        [
+          {
+            "node": "05 - Doc template Viettel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 - Doc template Viettel": {
+      "main": [
+        [
+          {
+            "node": "06 - Buffer template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 - Buffer template": {
+      "main": [
+        [
+          {
+            "node": "08M - Hop luong Du lieu Stage 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07 - SAP YINVLST API": {
+      "main": [
+        [
+          {
+            "node": "07b - Gom response SAP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07b - Gom response SAP": {
+      "main": [
+        [
+          {
+            "node": "07c - Kiem tra ty gia Form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "08 - SAP TCURR API": {
+      "main": [
+        [
+          {
+            "node": "08M - Hop luong Du lieu Stage 1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "09 - Tao Excel Viettel va Audit": {
+      "main": [
+        [
+          {
+            "node": "10 - Trang thai doi soat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10 - Trang thai doi soat": {
+      "main": [
+        [
+          {
+            "node": "11 - Luu Excel tren server share",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "18 - End Form Tai log loi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11 - Luu Excel tren server share": {
+      "main": [
+        [
+          {
+            "node": "16 - End Form Tai file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06b - Chon nguon SAP": {
+      "main": [
+        [
+          {
+            "node": "07 - SAP YINVLST API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "07L - Doc file SAP tu folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07L - Doc file SAP tu folder": {
+      "main": [
+        [
+          {
+            "node": "08L - Chuan hoa SAP tu Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "08L - Chuan hoa SAP tu Excel": {
+      "main": [
+        [
+          {
+            "node": "08M - Hop luong Du lieu Stage 1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "08M - Hop luong Du lieu Stage 1": {
+      "main": [
+        [
+          {
+            "node": "09 - Tao Excel Viettel va Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07c - Kiem tra ty gia Form": {
+      "main": [
+        [
+          {
+            "node": "08M - Hop luong Du lieu Stage 1",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "08 - SAP TCURR API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all"
+  },
+  "active": false,
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "explanation": "Contract expected from an IT-provided SAP S/4HANA integration service. These are NOT assumed to exist in SAP out-of-the-box.",
+  "invoiceEndpoint": {
+    "method": "GET",
+    "url": "https://SAP_GATEWAY_HOST/finance/invoices?companyCode=HK13&from=2026-11-01&to=2026-11-30",
+    "response": {
+      "value": [
+        {
+          "invoice": "<billing document number>",
+          "billingDate": "YYYY-MM-DD",
+          "contentF": "<Ms Tien column F equivalent>",
+          "contentG": "<Ms Tien column G equivalent>",
+          "fieldK": "<Ms Tien column K equivalent>",
+          "quantity": "<Ms Tien column L quantity>",
+          "fieldM": "<Ms Tien column M result; no error>",
+          "fieldN": "<Ms Tien column N equivalent>",
+          "declarationText": "<optional content equivalent to Ms Tien column P>",
+          "reconcileDifference": "<numeric delta per invoice line; together must sum to zero>"
+        }
+      ]
+    },
+    "warning": "IT must reconstruct relevant business rules of workbook columns B:P, T:AC; YINVLST may not directly contain contentF/contentG/fieldM/reconcileDifference. A normalization layer or custom SAP OData/CDS API is required."
+  },
+  "fxEndpoint": {
+    "method": "GET",
+    "url": "https://SAP_GATEWAY_HOST/finance/usd-vnd-rate?fromCurrency=USD&toCurrency=VND&validOn=2026-11-10",
+    "response": {"rateVndPerUsd": "<positive effective VND/USD rate>", "validOn": "2026-11-10"},
+    "warning": "Resolve TCURR quotation direction, exchange-rate factors and decimal representation correctly. Do not treat raw UKURS as automatically VND/USD."
+  }
+}
